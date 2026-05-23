@@ -1,17 +1,34 @@
 import { ClipboardCopy, Download, Loader2 } from "lucide-react";
-import type { Mode } from "../types";
+import type { GenerateProvider, Mode } from "../types";
 
 interface ResultPanelProps {
   mode: Mode;
   value: string;
+  provider: GenerateProvider | null;
   isLoading: boolean;
   onCopy: () => void;
   onExportMarkdown: () => void;
 }
 
+function getProviderLabel(provider: GenerateProvider) {
+  switch (provider) {
+    case "local_qwen":
+      return "由本地 Qwen2.5:3B 生成";
+    case "cloud_ai":
+      return "由云端 AI 生成";
+    case "local_fallback":
+      return "已使用规则模板生成";
+    case "mode_mismatch":
+      return "模式提醒";
+    default:
+      return "";
+  }
+}
+
 export function ResultPanel({
   mode,
   value,
+  provider,
   isLoading,
   onCopy,
   onExportMarkdown
@@ -22,6 +39,7 @@ export function ResultPanel({
         <div>
           <p className="eyebrow">{mode === "student" ? "学习笔记" : "会议纪要"}</p>
           <h2>结构化结果</h2>
+          {provider && value.trim() ? <p className="provider-label">{getProviderLabel(provider)}</p> : null}
         </div>
         <div className="panel-actions">
           <button type="button" title="复制结果" onClick={onCopy}>

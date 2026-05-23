@@ -1,4 +1,4 @@
-import type { GeneratePayload } from "../types";
+import type { GeneratePayload, GenerateResponse } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -19,14 +19,13 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function generateDocument({ mode, text }: GeneratePayload) {
+export async function generateDocument({ mode, text, ignoreModeMismatch }: GeneratePayload) {
   const endpoint =
     mode === "student"
       ? "/api/generate-student-note"
       : "/api/generate-meeting-minutes";
-  const data = await postJson<{ result: string }>(endpoint, { text });
 
-  return data.result;
+  return postJson<GenerateResponse>(endpoint, { text, ignoreModeMismatch });
 }
 
 export async function polishText(text: string) {
