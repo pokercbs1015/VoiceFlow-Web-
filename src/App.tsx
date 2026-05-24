@@ -1,13 +1,11 @@
 import {
   ClipboardCopy,
   Download,
-  FileText,
   Mic,
   RotateCcw,
   Sparkles,
   Square,
-  Trash2,
-  Wand2
+  Trash2
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ModeSelector } from "./components/ModeSelector";
@@ -126,26 +124,6 @@ export default function App() {
     showToast("开始实时转写，请直接说话。", "info");
   };
 
-  const handleClean = () => {
-    if (!transcript.trim()) {
-      showToast("请先输入或转写一段内容。", "warning");
-      return;
-    }
-
-    setTranscript(cleanFillerWords(transcript));
-    showToast("已清理常见语气词。", "success");
-  };
-
-  const handlePunctuation = () => {
-    if (!transcript.trim()) {
-      showToast("请先输入或转写一段内容。", "warning");
-      return;
-    }
-
-    setTranscript(addBasicPunctuation(transcript));
-    showToast("已补充基础标点。", "success");
-  };
-
   const handleGenerate = async () => {
     const sourceText = cleanedPreview || transcript.trim();
 
@@ -239,7 +217,7 @@ export default function App() {
     }
 
     setTranscript(removeLastSentence(transcript));
-    showToast("已删除上一句。", "success");
+    showToast("已删除该句。", "success");
   };
 
   const handleClear = () => {
@@ -300,16 +278,6 @@ export default function App() {
           {isListening ? "停止转写" : "开始说话"}
         </button>
 
-        <button type="button" onClick={handleClean}>
-          <Wand2 size={18} />
-          清理语气词
-        </button>
-
-        <button type="button" onClick={handlePunctuation}>
-          <FileText size={18} />
-          自动标点
-        </button>
-
         <button type="button" onClick={handlePolish} disabled={isPolishing}>
           <Sparkles size={18} />
           {isPolishing ? "润色中" : "智能润色"}
@@ -322,7 +290,7 @@ export default function App() {
 
         <button type="button" onClick={handleDeleteLast}>
           <RotateCcw size={18} />
-          删除上一句
+          删除该句
         </button>
 
         <button type="button" onClick={handleCopy}>
