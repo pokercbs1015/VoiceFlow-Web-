@@ -218,6 +218,11 @@ button:disabled {
   padding: 0;
 }
 
+.panel-actions .ghost-button {
+  min-width: auto;
+  padding: 0 14px;
+}
+
 .ghost-button {
   background: #f8fafc;
 }
