@@ -1,11 +1,11 @@
 import {
   ClipboardCopy,
-  Download,
   Mic,
   RotateCcw,
   Sparkles,
   Square,
-  Trash2
+  Trash2,
+  Undo2
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ModeSelector } from "./components/ModeSelector";
@@ -18,7 +18,7 @@ import { generateDocument, polishText } from "./services/aiService";
 import type { GenerateProvider, GenerateWarning, Mode, ToastState } from "./types";
 import { copyText } from "./utils/copy";
 import { exportMarkdown, exportTxt } from "./utils/exportFile";
-import { createLocalResult, getDemoText } from "./utils/localFormatter";
+import { createLocalResult } from "./utils/localFormatter";
 import { addBasicPunctuation } from "./utils/punctuation";
 import {
   appendDictationText,
@@ -288,14 +288,19 @@ export default function App() {
     showToast(`已导出 ${type.toUpperCase()} 文件。`, "success");
   };
 
-  const handleLoadDemo = () => {
-    const demo = getDemoText(mode);
+  const handleTranscriptChange = (value: string) => {
     setDeleteUndoSnapshot(null);
-    setTranscript(demo);
-    setResult("");
-    setResultProvider(null);
-    resetInterim();
-    showToast("已载入演示文本。", "success");
+    setTranscript(value);
+  };
+
+  const handleUndoDelete = () => {
+    if (!deleteUndoSnapshot) {
+      return;
+    }
+
+    setTranscript(deleteUndoSnapshot);
+    setDeleteUndoSnapshot(null);
+    showToast("已撤销删除。", "success");
   };
 
   const handleDeleteLast = () => {
@@ -352,7 +357,8 @@ export default function App() {
           interimText={interimText}
           isListening={isListening}
           onChange={handleTranscriptChange}
-          onLoadDemo={handleLoadDemo}
+          onExportTxt={() => handleExport("txt")}
+          onExportMarkdown={() => handleExport("md")}
         />
 
         <ResultPanel
@@ -398,16 +404,6 @@ export default function App() {
         <button type="button" onClick={handleCopy}>
           <ClipboardCopy size={18} />
           复制
-        </button>
-
-        <button type="button" onClick={() => handleExport("txt")}>
-          <Download size={18} />
-          TXT
-        </button>
-
-        <button type="button" onClick={() => handleExport("md")}>
-          <Download size={18} />
-          MD
         </button>
 
         <button className="danger-action" type="button" onClick={handleClear}>
