@@ -15,7 +15,7 @@ import { Toast } from "./components/Toast";
 import { TranscriptEditor } from "./components/TranscriptEditor";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import { generateDocument, polishText } from "./services/aiService";
-import type { Mode, ToastState } from "./types";
+import type { GenerateProvider, GenerateWarning, Mode, ToastState } from "./types";
 import { copyText } from "./utils/copy";
 import { exportMarkdown, exportTxt } from "./utils/exportFile";
 import { createLocalResult, getDemoText } from "./utils/localFormatter";
@@ -30,6 +30,30 @@ import {
 const TRANSCRIPT_KEY = "voiceflow.transcript";
 const RESULT_KEY = "voiceflow.result";
 const MODE_KEY = "voiceflow.mode";
+const PROVIDER_KEY = "voiceflow.provider";
+
+function getModeLabel(mode: Mode) {
+  return mode === "student" ? "学生笔记模式" : "会议纪要模式";
+}
+
+function readInitialProvider(): GenerateProvider | null {
+  const saved = readLocalStorage(PROVIDER_KEY);
+  return saved === "local_qwen" || saved === "cloud_ai" || saved === "local_fallback" || saved === "mode_mismatch"
+    ? saved
+    : null;
+}
+
+function getWarningMessage(warning?: GenerateWarning, result?: string) {
+  if (warning === "TEXT_LONG") {
+    return "文本较长，生成可能稍慢。";
+  }
+
+  if (warning === "TEXT_TOO_LONG" || warning === "TEXT_TOO_SHORT") {
+    return result || "请调整输入内容后再生成。";
+  }
+
+  return "";
+}
 
 function readLocalStorage(key: string) {
   if (typeof window === "undefined") {
@@ -48,6 +72,8 @@ export default function App() {
   const [mode, setMode] = useState<Mode>(readInitialMode);
   const [transcript, setTranscript] = useState(() => readLocalStorage(TRANSCRIPT_KEY));
   const [result, setResult] = useState(() => readLocalStorage(RESULT_KEY));
+  const [resultProvider, setResultProvider] = useState<GenerateProvider | null>(readInitialProvider);
+  const [deleteUndoSnapshot, setDeleteUndoSnapshot] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPolishing, setIsPolishing] = useState(false);
@@ -69,10 +95,12 @@ export default function App() {
         const commandResult = runVoiceCommand(text, current);
 
         if (commandResult.handled) {
+          setDeleteUndoSnapshot(commandResult.message === "已删除上一句。" ? current : null);
           showToast(commandResult.message, "success");
           return commandResult.text;
         }
 
+        setDeleteUndoSnapshot(null);
         return appendDictationText(current, text);
       });
     },
@@ -86,6 +114,14 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(RESULT_KEY, result);
   }, [result]);
+
+  useEffect(() => {
+    if (resultProvider) {
+      window.localStorage.setItem(PROVIDER_KEY, resultProvider);
+    } else {
+      window.localStorage.removeItem(PROVIDER_KEY);
+    }
+  }, [resultProvider]);
 
   useEffect(() => {
     window.localStorage.setItem(MODE_KEY, mode);
@@ -126,6 +162,8 @@ export default function App() {
 
   const handleGenerate = async () => {
     const sourceText = cleanedPreview || transcript.trim();
+    const currentMode = mode;
+    let generationMode = currentMode;
 
     if (!sourceText) {
       showToast("请先输入或转写一段内容。", "warning");
@@ -135,12 +173,58 @@ export default function App() {
     setIsGenerating(true);
 
     try {
-      const generated = await generateDocument({ mode, text: sourceText });
-      setResult(generated);
-      showToast(mode === "student" ? "学习笔记已生成。" : "会议纪要已生成。", "success");
+      const generated = await generateDocument({ mode: currentMode, text: sourceText });
+
+      if (generated.warning === "MODE_MISMATCH" && generated.suggestedMode) {
+        const shouldSwitch = window.confirm(`${generated.result}\n\n点击“确定”切换到${getModeLabel(generated.suggestedMode)}。\n点击“取消”继续使用${getModeLabel(currentMode)}生成。`);
+
+        if (shouldSwitch) {
+          generationMode = generated.suggestedMode;
+          setMode(generationMode);
+          setResult("");
+          setResultProvider(null);
+          showToast(`已切换到${getModeLabel(generationMode)}，正在生成。`, "info");
+
+          const switched = await generateDocument({
+            mode: generationMode,
+            text: sourceText
+          });
+          setResult(switched.result);
+          setResultProvider(switched.provider ?? null);
+          if (switched.warning) {
+            showToast(getWarningMessage(switched.warning, switched.result) || "生成完成，但请检查提示信息。", "warning");
+            return;
+          }
+          showToast(generationMode === "student" ? "学习笔记已生成。" : "会议纪要已生成。", "success");
+          return;
+        }
+
+        const forced = await generateDocument({
+          mode: currentMode,
+          text: sourceText,
+          ignoreModeMismatch: true
+        });
+        setResult(forced.result);
+        setResultProvider(forced.provider ?? null);
+        if (forced.warning) {
+          showToast(getWarningMessage(forced.warning, forced.result) || "生成完成，但请检查提示信息。", "warning");
+          return;
+        }
+        showToast(currentMode === "student" ? "学习笔记已生成。" : "会议纪要已生成。", "success");
+        return;
+      }
+
+      setResult(generated.result);
+      setResultProvider(generated.provider ?? null);
+      if (generated.warning) {
+        showToast(getWarningMessage(generated.warning, generated.result) || "生成完成，但请检查提示信息。", "warning");
+        return;
+      }
+      showToast(currentMode === "student" ? "学习笔记已生成。" : "会议纪要已生成。", "success");
     } catch (error) {
-      const fallback = createLocalResult(mode, sourceText);
+      const fallback = createLocalResult(generationMode, sourceText);
       setResult(fallback);
+      setResultProvider("local_fallback");
       showToast("后端暂不可用，已使用本地演示整理。", "warning");
     } finally {
       setIsGenerating(false);
@@ -159,9 +243,11 @@ export default function App() {
 
     try {
       const polished = await polishText(sourceText);
+      setDeleteUndoSnapshot(null);
       setTranscript(polished);
       showToast("文本已润色。", "success");
     } catch (error) {
+      setDeleteUndoSnapshot(null);
       setTranscript(addBasicPunctuation(cleanFillerWords(sourceText)));
       showToast("后端暂不可用，已完成本地清理。", "warning");
     } finally {
@@ -204,8 +290,10 @@ export default function App() {
 
   const handleLoadDemo = () => {
     const demo = getDemoText(mode);
+    setDeleteUndoSnapshot(null);
     setTranscript(demo);
     setResult("");
+    setResultProvider(null);
     resetInterim();
     showToast("已载入演示文本。", "success");
   };
@@ -221,8 +309,16 @@ export default function App() {
   };
 
   const handleClear = () => {
+    const confirmed = window.confirm("确定要清空当前内容和生成结果吗？");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteUndoSnapshot(null);
     setTranscript("");
     setResult("");
+    setResultProvider(null);
     resetInterim();
     showToast("已清空当前内容。", "success");
   };
@@ -255,13 +351,14 @@ export default function App() {
           value={transcript}
           interimText={interimText}
           isListening={isListening}
-          onChange={setTranscript}
+          onChange={handleTranscriptChange}
           onLoadDemo={handleLoadDemo}
         />
 
         <ResultPanel
           mode={mode}
           value={result}
+          provider={resultProvider}
           isLoading={isGenerating}
           onCopy={handleCopy}
           onExportMarkdown={() => handleExport("md")}
@@ -291,6 +388,11 @@ export default function App() {
         <button type="button" onClick={handleDeleteLast}>
           <RotateCcw size={18} />
           删除该句
+        </button>
+
+        <button type="button" onClick={handleUndoDelete} disabled={!deleteUndoSnapshot}>
+          <Undo2 size={18} />
+          撤销删除
         </button>
 
         <button type="button" onClick={handleCopy}>
